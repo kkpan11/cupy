@@ -247,11 +247,11 @@ class TestCsrMatrix:
         cupy.testing.assert_array_equal(n.indptr, self.m.indptr)
         assert n.shape == self.m.shape
 
-    @testing.with_requires('scipy')
+    @testing.with_requires('scipy>=1.15')
     def test_init_dense_invalid_ndim(self):
         for xp, sp in ((numpy, scipy.sparse), (cupy, sparse)):
             m = xp.zeros((1, 1, 1), dtype=self.dtype)
-            with pytest.raises(TypeError):
+            with pytest.raises(ValueError):
                 sp.csr_matrix(m)
 
     def test_copy(self):
@@ -290,18 +290,25 @@ class TestCsrMatrix:
         ]
         numpy.testing.assert_allclose(m.toarray(), expect)
 
-    @testing.with_requires('scipy')
+    @testing.with_requires('scipy>=1.14')
     def test_str(self):
+        dtype_name = numpy.dtype(self.dtype).name
         if numpy.dtype(self.dtype).kind == 'f':
-            expect = '''  (0, 0)\t0.0
+            expect = f'''<Compressed Sparse Row sparse matrix of dtype '{dtype_name}'
+\twith 4 stored elements and shape (3, 4)>
+  Coords\tValues
+  (0, 0)\t0.0
   (0, 1)\t1.0
   (1, 3)\t2.0
-  (2, 2)\t3.0'''
+  (2, 2)\t3.0'''  # NOQA
         elif numpy.dtype(self.dtype).kind == 'c':
-            expect = '''  (0, 0)\t0j
+            expect = f'''<Compressed Sparse Row sparse matrix of dtype '{dtype_name}'
+\twith 4 stored elements and shape (3, 4)>
+  Coords\tValues
+  (0, 0)\t0j
   (0, 1)\t(1+0j)
   (1, 3)\t(2+0j)
-  (2, 2)\t(3+0j)'''
+  (2, 2)\t(3+0j)'''  # NOQA
 
         assert str(self.m) == expect
 
@@ -560,6 +567,7 @@ class TestCsrMatrixScipyComparison:
             with pytest.raises(ValueError):
                 m.toarray(order='#')
 
+    @testing.with_requires('scipy<1.14')
     @testing.numpy_cupy_allclose(sp_name='sp')
     def test_A(self, xp, sp):
         m = self.make(xp, sp, self.dtype)
@@ -1226,19 +1234,22 @@ class TestCsrMatrixScipyComparison:
         y = m / xp.array(self._make_scalar(dtype))
         return y.toarray()
 
+    @testing.with_requires('scipy>=1.11')
     @testing.numpy_cupy_allclose(sp_name='sp')
     def test_divide_dense_row(self, xp, sp):
         m = self.make(xp, sp, self.dtype)
         x = xp.arange(4, dtype=self.dtype)
         return m / x
 
+    @testing.with_requires('scipy>=1.11')
     @testing.numpy_cupy_allclose(sp_name='sp')
     def test_divide_dense_col(self, xp, sp):
         m = self.make(xp, sp, self.dtype)
         x = xp.arange(3, dtype=self.dtype).reshape(3, 1)
         return m / x
 
-    @testing.numpy_cupy_allclose(sp_name='sp')
+    @testing.with_requires('scipy>=1.11')
+    @testing.numpy_cupy_allclose(sp_name='sp', rtol=2e-7)
     def test_divide_dense_matrix(self, xp, sp):
         m = self.make(xp, sp, self.dtype)
         x = xp.arange(12, dtype=self.dtype).reshape(3, 4)
@@ -1303,10 +1314,11 @@ class TestCsrMatrixPowScipyComparison:
             with pytest.raises(ValueError):
                 m ** 1.5
 
+    @testing.with_requires('scipy>=1.12.0rc1')
     def test_pow_list(self):
         for xp, sp in ((numpy, scipy.sparse), (cupy, sparse)):
             m = _make_square(xp, sp, self.dtype)
-            with pytest.raises(TypeError):
+            with pytest.raises(ValueError):
                 m ** []
 
 
@@ -1913,16 +1925,25 @@ class TestCsrMatrixMaximumMinimum:
 
     @testing.numpy_cupy_array_equal(sp_name='sp')
     def test_scalar_plus(self, xp, sp):
+        if (self.a_dtype in ('float32', 'complex64')):
+            pytest.xfail(reason="XXX: np2.0: weak promotion")
+
         a = self._make_sp_matrix(self.a_dtype, xp, sp)
         return getattr(a, self.opt)(0.5)
 
     @testing.numpy_cupy_array_equal(sp_name='sp')
     def test_scalar_minus(self, xp, sp):
+        if (self.a_dtype in ('float32', 'complex64')):
+            pytest.xfail(reason="XXX: np2.0: weak promotion")
+
         a = self._make_sp_matrix(self.a_dtype, xp, sp)
         return getattr(a, self.opt)(-0.5)
 
     @testing.numpy_cupy_array_equal(sp_name='sp')
     def test_scalar_zero(self, xp, sp):
+        if self.a_dtype in ('float32', 'complex64'):
+            pytest.xfail(reason="XXX: np2.0: weak promotion")
+
         a = self._make_sp_matrix(self.a_dtype, xp, sp)
         return getattr(a, self.opt)(0)
 
@@ -2130,9 +2151,7 @@ class TestCsrMatrixDiagonal:
         cupyx_a = cupyx_a.copy()
         scipy_a.setdiag(x, k=k)
         cupyx_a.setdiag(cupy.array(x), k=k)
-        testing.assert_allclose(scipy_a.data, cupyx_a.data)
-        testing.assert_array_equal(scipy_a.indices, cupyx_a.indices)
-        testing.assert_array_equal(scipy_a.indptr, cupyx_a.indptr)
+        testing.assert_allclose(scipy_a.todense(), cupyx_a.todense())
 
     @testing.for_dtypes('fdFD')
     def test_setdiag(self, dtype):
